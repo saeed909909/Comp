@@ -58,7 +58,9 @@
           h('div', { class: 'grid two', style: { gap: '10px' } }, field('Discipline', disc), field('Level', lvl)),
           bc.wrap,
           h('label', { class: 'check' }, active, 'Account active (disabled users cannot sign in or take tests)')),
-        actions: locked ? [{ label: 'Close' }] : [{ label: 'Cancel' }, {
+        actions: locked ? [{ label: 'Close' }] : [
+          ...(App.can('owner') && !self && u.role !== 'owner' ? [{ label: 'Delete user', kind: 'ghost-danger', onClick: () => deleteUser(u) }] : []),
+          { label: 'Cancel' }, {
           label: 'Save', kind: 'primary', onClick: async () => {
             const patch = { full_name: name.value.trim(), discipline_id: disc.value || null, level: lvl.value };
             if (!self && u.role !== 'owner') { patch.role = role.value; patch.active = active.checked; }
@@ -71,6 +73,23 @@
             toast('Saved', 'ok');
             if (self) { await App.loadProfile(); App.renderNav(); }
             App.render();
+          }
+        }]
+      });
+    }
+
+    function deleteUser(u) {
+      const typed = h('input', { type: 'email', placeholder: u.email, autocomplete: 'off' });
+      modal({
+        title: 'Delete ' + (u.full_name || u.email) + '?',
+        body: h('div', null,
+          h('div', { class: 'alert bad' }, 'This permanently deletes the account and all of their test results and reports. It cannot be undone. To keep their history, untick "Account active" instead.'),
+          field('Type their email to confirm', typed, u.email)),
+        actions: [{ label: 'Cancel' }, {
+          label: 'Delete permanently', kind: 'danger', onClick: async () => {
+            if (typed.value.trim().toLowerCase() !== (u.email || '').toLowerCase()) { toast('The email does not match', 'bad'); return false; }
+            await API.invite({ action: 'delete', user_id: u.id });   // same server function as invites
+            toast('Deleted ' + u.email, 'ok'); App.render();
           }
         }]
       });
@@ -459,7 +478,7 @@
       const r = e.new_data || e.old_data || {};
       if (e.table_name === 'questions') return (r.body || '').slice(0, 90);
       if (e.table_name === 'profiles') return r.email || nameOf(r.id);
-      if (e.table_name === 'invites') return r.email + ' as ' + r.role;
+      if (e.table_name === 'invites') return e.action === 'delete_user' ? (r.email + ' (' + r.role + ')') : r.email + ' as ' + r.role;
       if (e.table_name === 'attempts') return nameOf(r.user_id) + (r.minutes ? ` +${r.minutes} min` : '');
       if (e.table_name === 'test_configs' || e.table_name === 'test_mix') return nameOf(r.discipline_id) + ' · ' + levelName(r.level) + (r.bank_id ? ' · ' + nameOf(r.bank_id) + ' ' + r.percent + '%' : '');
       if (e.table_name === 'bank_editors') return nameOf(r.user_id) + ' → ' + nameOf(r.bank_id);
@@ -475,7 +494,7 @@
       });
       return h('div', { class: 'diff auto', dir: 'auto' }, lines.length ? lines : 'No field changes');
     }
-    const actBadge = { insert: ['added', 'ok'], update: ['changed', 'blue'], delete: ['deleted', 'bad'], invite: ['invited', 'ok'], extend: ['extended', 'warn'], end: ['ended', 'warn'] };
+    const actBadge = { insert: ['added', 'ok'], update: ['changed', 'blue'], delete: ['deleted', 'bad'], invite: ['invited', 'ok'], delete_user: ['deleted user', 'bad'], extend: ['extended', 'warn'], end: ['ended', 'warn'] };
 
     async function load() {
       more.disabled = true;
